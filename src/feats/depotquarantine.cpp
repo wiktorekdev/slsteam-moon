@@ -96,25 +96,53 @@ namespace
 		return text.str();
 	}
 
+	// Rejects null and non-canonical values before a dereference, so a layout
+	// drift yields "unknown depot" instead of a crash in the download thread.
+	bool plausiblePointer(const void* p)
+	{
+		const auto v = reinterpret_cast<uintptr_t>(p);
+#if defined(__x86_64__)
+		return v >= 0x10000 && v < 0x0000800000000000ull;
+#else
+		return v >= 0x10000;
+#endif
+	}
+
 	uint32_t depotIdFromContext(void* context)
 	{
 		if (!context) return 0;
 		const auto bytes = reinterpret_cast<const uint8_t*>(context);
-		const auto owner = *reinterpret_cast<void* const*>(bytes + 0x08);
-		if (!owner) return 0;
+#if defined(__x86_64__)
+		// x86_64 widens every pointer: OnChunkUnpacked loads the owner from
+		// [ctx+0x10] (i386 [ctx+8]), and the owner's depot pointer moves from
+		// +0xc to +0x18 ("Downloading %u chunks for depot %u" reads
+		// [[owner+0x18]] where i386 reads [[owner+0xc]]).
+		constexpr size_t kOwnerOff = 0x10;
+		constexpr size_t kDepotOff = 0x18;
+#else
+		constexpr size_t kOwnerOff = 0x08;
+		constexpr size_t kDepotOff = 0x0c;
+#endif
+		const auto owner = *reinterpret_cast<void* const*>(bytes + kOwnerOff);
+		if (!plausiblePointer(owner)) return 0;
 		const auto depot = *reinterpret_cast<void* const*>(
-		    reinterpret_cast<const uint8_t*>(owner) + 0x0c);
-		if (!depot) return 0;
+		    reinterpret_cast<const uint8_t*>(owner) + kDepotOff);
+		if (!plausiblePointer(depot)) return 0;
 		return *reinterpret_cast<const uint32_t*>(depot);
 	}
 
 	uint64_t chunkFingerprint(const void* chunk)
 	{
 		if (!chunk) return 0;
-		// OnChunkUnpacked itself formats the 20-byte SHA at chunk+0x0c. Hashing
-		// it lets the policy distinguish separate failing chunks without copying
-		// or logging their identifiers.
+		// OnChunkUnpacked itself formats the 20-byte SHA at chunk+0x0c (+0x10 on
+		// x86_64, behind the wider vtable pointer). Hashing it lets the policy
+		// distinguish separate failing chunks without copying or logging their
+		// identifiers.
+#if defined(__x86_64__)
+		const auto sha = reinterpret_cast<const uint8_t*>(chunk) + 0x10;
+#else
 		const auto sha = reinterpret_cast<const uint8_t*>(chunk) + 0x0c;
+#endif
 		uint64_t hash = 14695981039346656037ULL;
 		for (std::size_t i = 0; i < 20; ++i)
 		{
