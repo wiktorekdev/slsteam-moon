@@ -1146,7 +1146,12 @@ namespace Patterns
 		Pattern_t UpdateAppOwnershipTicket
 		{
 			"IClientUser::UpdateAppOwnershipTicket",
-			"55 48 89 D5 48 89 CA 53 48 89 FB 48 83 EC 08 E8 ? ? ? ? 48 83 C4 08",
+			// CUser::UpdateAppOwnershipTicket(appId, data, len): the ticket
+			// response handler calls it right before posting
+			// AppOwnershipTicketReceived_t; it opens with `test ecx,ecx` (len).
+			// The previous signature matched the login-information setter,
+			// which then read the appId and length as strings.
+			"41 57 41 56 41 55 41 54 55 53 48 83 EC 68 64 48 8B 04 25 28 00 00 00 48 89 44 24 58 31 C0 85 C9",
 			SigFollowMode::None,
 			nullptr,
 			"Patterns::CUser::UpdateAppOwnershipTicket"
@@ -1259,7 +1264,10 @@ namespace Patterns
 		Pattern_t BUpdateAppOwnershipTicket
 		{
 			"IClientUser::BUpdateAppOwnershipTicket",
-			"41 57 41 56 41 55 41 54 4C 8D 67 50 55 48 89 F5 31 F6 53 48 89 FB",
+			// CUser::BUpdateAppOwnershipTicket(appId, bool): the IClientUser
+			// dispatcher reaches it through the +0x1F90 interface thunk (vtable
+			// slot 0x228); it opens with `test dl,dl` on the bool.
+			"41 57 41 56 41 55 41 54 55 53 48 89 FB 48 81 EC B8 00 00 00 84 D2",
 			SigFollowMode::None
 		};
 		Pattern_t GetAppOwnershipTicketExtendedData
