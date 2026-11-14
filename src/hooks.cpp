@@ -634,7 +634,10 @@ static uint32_t hkUser_GetSubscribedApps(void* pClientUser, uint32_t* pAppList, 
 
 static uint32_t hkUser_PostCallbackToAppId(void* pUser, uint32_t appId, uint32_t type, void* pCallback, uint32_t callbackSize)
 {
-	const uint32_t fakeAppId = FakeAppIds::getFakeAppId(appId);
+	// The "0:" wildcard must not catch SteamUI's own callbacks (appId 0 and
+	// its internal ids): LaunchApp waits at SynchronizingStats for the
+	// UserStatsReceived_t posted there and hangs if it is rerouted.
+	const uint32_t fakeAppId = FakeAppIds::getFakeAppId(appId, true);
 	if (fakeAppId)
 	{
 		g_pLog->debug("Rerouting callback from %u to %u\n", appId, fakeAppId);

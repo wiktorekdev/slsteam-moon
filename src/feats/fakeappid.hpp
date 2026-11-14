@@ -16,7 +16,9 @@ namespace FakeAppIds
 	extern std::unordered_map<void*, AppId_t> fakeAppIdMapServer;
 	extern std::unordered_map<uint64_t, AppId_t> fakeAppIdMapPings;
 
-	AppId_t getFakeAppId(const AppId_t appId);
+	// runningOnly: apply the "0:" wildcard only to an appId that a connected
+	// game process runs as (explicit mappings are unaffected).
+	AppId_t getFakeAppId(const AppId_t appId, const bool runningOnly = false);
 	AppId_t getRealAppIdFromEnv(const HSteamPipe pipe);
 	AppId_t getRealAppIdForCurrentPipe(const bool fallback = true);
 	bool shouldUseRealAppIdForInterface(const EIPCInterface type);
