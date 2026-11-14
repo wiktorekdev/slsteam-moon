@@ -2,6 +2,8 @@
 
 #include "globals.hpp"
 #include "memhlp.hpp"
+#include "rtti_vtable.hpp"
+#include "vftableinfo.hpp"
 #include "feats/ipcframe.hpp"
 #include "pattern_catalog.hpp"
 #include "pattern_cache.hpp"
@@ -577,6 +579,7 @@ Pattern_t::Pattern_t(const char* name, const char* pattern,
 bool Pattern_t::find()
 {
 	lm_module_t& targetModule = module ? *module : g_modSteamClient;
+	address = LM_ADDRESS_BAD;
 	matchAddress = LM_ADDRESS_BAD;
 	lm_address_t cachedMatch = LM_ADDRESS_BAD;
 	if (const auto trusted = catalogAddress(*this, true, &cachedMatch))
@@ -584,7 +587,31 @@ bool Pattern_t::find()
 		address = *trusted;
 		matchAddress = cachedMatch;
 	}
-	else
+	else if (rttiType != nullptr && rttiSlot != RttiVTable::NO_INDEX)
+	{
+		const lm_address_t rttiAddr = RttiVTable::resolveSlot(
+			targetModule, rttiType, rttiSlot, rttiSubClass);
+		if (rttiAddr != LM_ADDRESS_BAD)
+		{
+			lm_segment_t targetSegment {};
+			const bool inside = rttiAddr >= targetModule.base
+			                 && rttiAddr < targetModule.base + targetModule.size;
+			const bool executable = LM_FindSegment(rttiAddr, &targetSegment)
+			                     && (targetSegment.prot & LM_PROT_XR) == LM_PROT_XR;
+			if (inside && executable)
+			{
+				address = rttiAddr;
+				matchAddress = rttiAddr;
+				if (g_pLog)
+				{
+					g_pLog->debug("RttiVTable: resolved '%s' via %s[%u] -> %p\n",
+					              name.c_str(), rttiType, rttiSlot,
+					              reinterpret_cast<void*>(rttiAddr));
+				}
+			}
+		}
+	}
+	if (address == LM_ADDRESS_BAD)
 	{
 		const auto resolved = MemHlp::searchSignatureDetailed
 		(
@@ -847,6 +874,17 @@ bool Patterns::init()
 	SteamUI::BuildCompleteAppOverviewChange.optional = true;
 	SteamUI::OwnershipFlagsReference.optional = true;
 
+#if defined(__x86_64__)
+	CCMInterface::RecvPkt.rttiType = "12CCMInterface";
+	CCMInterface::RecvPkt.rttiSlot = 3;
+	ISteamMatchmakingPingResponse::ServerResponded.rttiType = "15CGameInfoDialog";
+	ISteamMatchmakingPingResponse::ServerResponded.rttiSlot = 5;
+	CSteamMatchmakingServers::GetServerDetails.rttiType = "24CSteamMatchMakingServers";
+	CSteamMatchmakingServers::GetServerDetails.rttiSlot = 7;
+	CSteamMatchmakingServers::RequestInternetServerList.rttiType = "24CSteamMatchMakingServers";
+	CSteamMatchmakingServers::RequestInternetServerList.rttiSlot = 0;
+#endif
+
 	loadActiveCatalogs();
 
 	// Self-heal the IClient*::RunIPCFrame signatures before scanning.  Their
@@ -887,6 +925,8 @@ bool Patterns::init()
 
 	if (found)
 		writeLocalCatalogs();
+	VFTIndexes::init();
+	RttiVTable::clearCache();
 	return found;
 }
 

@@ -1,6 +1,14 @@
 # slssteam-moon-64
 
-A 64-bit (`x86_64`) fork of [swwayps/slsteam-moon](https://github.com/swwayps/slsteam-moon) (originally forked from [SLSsteam](https://github.com/AceSLS/SLSsteam)), updated to work natively on newer **`steamrt64`-based** Linux Steam clients with extra protocol handlers, SteamStub support, and a Lua manifest importer.
+A 64-bit (`x86_64`) fork of [swwayps/slsteam-moon](https://github.com/swwayps/slsteam-moon) that integrates [AceSLS/SLSsteam](https://github.com/AceSLS/SLSsteam)'s ELF64 RTTI vtable and dynamic `IClient*Map` hook resolution methods for modern **`steamrt64`** Linux Steam clients, while retaining `slssteam-moon`'s full LuaTools feature stack.
+
+## Architecture
+
+- **Resilient 64-bit Hook & Slot Resolution (from AceSLS):**
+  - Resolves virtual hooks (`CCMInterface::RecvPkt`, `ISteamMatchmakingPingResponse::ServerResponded`, `CSteamMatchmakingServers::GetServerDetails`, `CSteamMatchmakingServers::RequestInternetServerList`) via ELF64 Itanium ABI RTTI vtables.
+  - Dynamically resolves `IClient*` vtable slot indices (`IClientApps`, `IClientCompat`, `IClientAppManager`, `IClientRemoteStorage`, `IClientUser`, `IClientUtils`) from `IClient*Map` method-name references at startup.
+- **Full LuaTools & Moon Feature Stack (from `slssteam-moon`):**
+  - Preserves `stplug-in` / `luaappids.yaml` support, `AppInfoProvision`, `DepotKey` & `ManifestId` importers, `HotReload`, `OwnerWork`, SteamStub/Steamless integration, and `pattern_cache` + byte-pattern fallbacks.
 
 ## Installation (with LuaTools)
 
@@ -19,12 +27,16 @@ For building from source, see [`docs/BUILDING.md`](docs/BUILDING.md).
 
 ## Credits
 
-Upstream:
+Upstream & Credits:
 
-- [AceSLS](https://github.com/AceSLS) and contributors —
-  the hook framework, protobuf plumbing, ownership patches,
-  family-share bypass, and the broader feature set this branch
-  builds on.
+- **[swwayps](https://github.com/swwayps) ([slsteam-moon](https://github.com/swwayps/slsteam-moon) / [luatools-moon](https://github.com/swwayps/luatools-moon))** —
+  the LuaTools integration, `AppInfoProvision`, `DepotKey` & `ManifestId`
+  importers, `HotReload`, `OwnerWork`, `PatternCache`, SteamStub integration,
+  and protocol enhancements.
+- **[AceSLS](https://github.com/AceSLS) and contributors ([AceSLS/SLSsteam](https://github.com/AceSLS/SLSsteam))** —
+  the original SLSsteam hook framework, protobuf plumbing, ownership &
+  family-share bypasses, and the ELF64 RTTI vtable & `IClient*Map` dynamic
+  slot resolution architecture integrated into `slssteam-moon-64`.
 
 Reference material:
 

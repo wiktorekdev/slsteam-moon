@@ -1,6 +1,7 @@
 #pragma once
 
 #include "memhlp.hpp"
+#include "rtti_vtable.hpp"
 
 #include "libmem/libmem.h"
 
@@ -30,6 +31,10 @@ public:
 	// feature where "not found" must degrade to a safe no-op rather
 	// than disabling SLSsteam entirely.
 	bool optional = false;
+
+	const char* rttiType = nullptr;
+	unsigned int rttiSlot = RttiVTable::NO_INDEX;
+	unsigned int rttiSubClass = RttiVTable::NO_INDEX;
 
 	lm_address_t address = LM_ADDRESS_BAD;
 	// The raw signature match is kept separately from the followed target so a
