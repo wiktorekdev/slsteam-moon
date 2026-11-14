@@ -25,6 +25,7 @@
 
 #include "cm_budget.hpp"
 #include "cmlist_cache.hpp"
+#include "curl_resolve.hpp"
 #include "provision_network.hpp"
 
 #include "../config.hpp"
@@ -125,6 +126,8 @@ typedef CURLcode (*curl_easy_getinfo_t)(CURL*, CURLINFO, ...);
 typedef CURLcode (*curl_easy_send_t)(CURL*, const void*, size_t, size_t*);
 typedef CURLcode (*curl_easy_recv_t)(CURL*, void*, size_t, size_t*);
 typedef const char* (*curl_easy_strerror_t)(CURLcode);
+typedef curl_slist* (*curl_slist_append_t)(curl_slist*, const char*);
+typedef void        (*curl_slist_free_all_t)(curl_slist*);
 
 curl_easy_init_t     p_init     = nullptr;
 curl_easy_setopt_t   p_setopt   = nullptr;
@@ -134,6 +137,8 @@ curl_easy_getinfo_t  p_getinfo  = nullptr;
 curl_easy_send_t     p_send     = nullptr;
 curl_easy_recv_t     p_recv     = nullptr;
 curl_easy_strerror_t p_strerror = nullptr;
+curl_slist_append_t   p_slist_append   = nullptr;
+curl_slist_free_all_t p_slist_free_all = nullptr;
 
 bool loadCurl()
 {
@@ -149,6 +154,8 @@ bool loadCurl()
 	p_send     = (curl_easy_send_t)     dlsym(h, "curl_easy_send");
 	p_recv     = (curl_easy_recv_t)     dlsym(h, "curl_easy_recv");
 	p_strerror = (curl_easy_strerror_t) dlsym(h, "curl_easy_strerror");
+	p_slist_append   = (curl_slist_append_t)   dlsym(h, "curl_slist_append");
+	p_slist_free_all = (curl_slist_free_all_t) dlsym(h, "curl_slist_free_all");
 	return p_init && p_setopt && p_perform && p_cleanup &&
 	       p_getinfo && p_send && p_recv;
 }
@@ -183,10 +190,13 @@ AppInfoProvision::NetworkFailure httpsGet(const std::string& url,
 	// nothing -> "empty CM list". No-op when no bundle is found.
 	if (const char* f = ca::bundleFile()) p_setopt(c, CURLOPT_CAINFO, f);
 	if (const char* d = ca::bundleDir())  p_setopt(c, CURLOPT_CAPATH, d);
+	auto resolveGuard = CurlResolve::seedResolveForUrl(
+	    c, url, p_setopt, p_slist_append, p_slist_free_all);
 	const CURLcode rc = p_perform(c);
 	long status = 0;
 	p_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
 	p_cleanup(c);
+	resolveGuard.reset();
 	if (rc != CURLE_OK) return AppInfoProvision::classifyCurlFailure(rc);
 	if (status != 200) return AppInfoProvision::classifyHttpFailure(status);
 	return body.empty() ? AppInfoProvision::NetworkFailure::Provider
@@ -354,7 +364,11 @@ class TlsSocket
 public:
 	explicit TlsSocket(const BatchBudget& budget)
 	    : m_budget(budget), m_deadline(budget.deadline()) {}
-	~TlsSocket() { if (m_c) p_cleanup(m_c); }
+	~TlsSocket()
+	{
+		if (m_c) p_cleanup(m_c);
+		m_resolve.reset();
+	}
 
 	bool connect(const Endpoint& ep)
 	{
@@ -377,6 +391,8 @@ public:
 		// SteamOS/Arch (see cainfo.hpp); no-op when no bundle is found.
 		if (const char* f = ca::bundleFile()) p_setopt(m_c, CURLOPT_CAINFO, f);
 		if (const char* d = ca::bundleDir())  p_setopt(m_c, CURLOPT_CAPATH, d);
+		m_resolve = CurlResolve::seedResolveForUrl(
+		    m_c, url, p_setopt, p_slist_append, p_slist_free_all);
 		const CURLcode rc = p_perform(m_c);
 		return rc == CURLE_OK;
 	}
@@ -420,6 +436,7 @@ public:
 
 private:
 	CURL* m_c = nullptr;
+	CurlResolve::ScopedResolveList m_resolve;
 	std::string m_rx;
 	const BatchBudget& m_budget;
 	std::chrono::steady_clock::time_point m_deadline;

@@ -10,6 +10,7 @@
 #include "apps.hpp"
 #include "cmclient.hpp"
 #include "compattool.hpp"
+#include "curl_resolve.hpp"
 #include "depotkey.hpp"
 #include "emptydepot.hpp"
 #include "dlcids.hpp"
@@ -194,6 +195,8 @@ typedef CURLcode    (*curl_easy_perform_t)(CURL*);
 typedef void        (*curl_easy_cleanup_t)(CURL*);
 typedef CURLcode    (*curl_easy_getinfo_t)(CURL*, CURLINFO, ...);
 typedef const char* (*curl_easy_strerror_t)(CURLcode);
+typedef curl_slist* (*curl_slist_append_t)(curl_slist*, const char*);
+typedef void        (*curl_slist_free_all_t)(curl_slist*);
 
 static curl_easy_init_t     p_curl_easy_init     = nullptr;
 static curl_easy_setopt_t   p_curl_easy_setopt   = nullptr;
@@ -201,6 +204,8 @@ static curl_easy_perform_t  p_curl_easy_perform  = nullptr;
 static curl_easy_cleanup_t  p_curl_easy_cleanup  = nullptr;
 static curl_easy_getinfo_t  p_curl_easy_getinfo  = nullptr;
 static curl_easy_strerror_t p_curl_easy_strerror = nullptr;
+static curl_slist_append_t   p_curl_slist_append   = nullptr;
+static curl_slist_free_all_t p_curl_slist_free_all = nullptr;
 
 bool loadCurl()
 {
@@ -214,6 +219,8 @@ bool loadCurl()
 	p_curl_easy_cleanup  = (curl_easy_cleanup_t)  dlsym(h, "curl_easy_cleanup");
 	p_curl_easy_getinfo  = (curl_easy_getinfo_t)  dlsym(h, "curl_easy_getinfo");
 	p_curl_easy_strerror = (curl_easy_strerror_t) dlsym(h, "curl_easy_strerror");
+	p_curl_slist_append   = (curl_slist_append_t)   dlsym(h, "curl_slist_append");
+	p_curl_slist_free_all = (curl_slist_free_all_t) dlsym(h, "curl_slist_free_all");
 	return p_curl_easy_init && p_curl_easy_setopt &&
 	       p_curl_easy_perform && p_curl_easy_cleanup;
 }
@@ -260,10 +267,14 @@ NetworkFailure httpGetJson(const std::string& url, std::string& body,
 	if (const char* f = ca::bundleFile()) p_curl_easy_setopt(c, CURLOPT_CAINFO, f);
 	if (const char* d = ca::bundleDir())  p_curl_easy_setopt(c, CURLOPT_CAPATH, d);
 
+	auto resolveGuard = CurlResolve::seedResolveForUrl(
+	    c, url, p_curl_easy_setopt, p_curl_slist_append, p_curl_slist_free_all);
+
 	const CURLcode rc = p_curl_easy_perform(c);
 	long status = 0;
 	if (p_curl_easy_getinfo) p_curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
 	p_curl_easy_cleanup(c);
+	resolveGuard.reset();
 
 	if (rc != CURLE_OK)
 	{
