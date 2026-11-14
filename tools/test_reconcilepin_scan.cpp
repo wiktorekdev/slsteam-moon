@@ -32,6 +32,42 @@ static int g_failures = 0;
 
 using ReconcilePin::detail::findBuilderCallRel32;
 using ReconcilePin::detail::findCtxDepotVectorOffset;
+using ReconcilePin::detail::findCtxDepotVectorOffset64;
+using ReconcilePin::detail::findBuilderCallSite64;
+
+// x86_64: `mov r11,[rbx+disp32]; mov r14,r15; shl r14,5` plus the size load
+// `movsxd rdx,[rbx+disp+0x10]` (steamrt64 EvaluateConfigChanges).
+static void putDepotIndex64(std::vector<uint8_t>& buf, std::size_t off,
+                            uint32_t disp)
+{
+	const uint8_t load[] = {0x4C, 0x8B, 0x9B};
+	const uint8_t index[] = {0x4D, 0x89, 0xFE, 0x49, 0xC1, 0xE6, 0x05};
+	std::memcpy(buf.data() + off, load, sizeof(load));
+	std::memcpy(buf.data() + off + 3, &disp, sizeof(disp));
+	std::memcpy(buf.data() + off + 7, index, sizeof(index));
+}
+
+static void putDepotSize64(std::vector<uint8_t>& buf, std::size_t off,
+                           uint32_t disp)
+{
+	buf[off] = 0x48; buf[off + 1] = 0x63; buf[off + 2] = 0x93;
+	std::memcpy(buf.data() + off + 3, &disp, sizeof(disp));
+}
+
+// x86_64: `push rax; mov rdi,[rbp+d32]; call rel32; test al,al; pop rdx; pop rcx`.
+static void putBuilderCall64(std::vector<uint8_t>& buf, std::size_t off,
+                             std::uintptr_t base, std::uintptr_t targetAbs)
+{
+	const uint8_t head[] = {0x50, 0x48, 0x8B, 0xBD, 0x40, 0xFE, 0xFF, 0xFF};
+	std::memcpy(buf.data() + off, head, sizeof(head));
+	buf[off + 8] = 0xE8;
+	const int32_t rel = static_cast<int32_t>(
+	    static_cast<intptr_t>(targetAbs) -
+	    static_cast<intptr_t>(base + off + 13));
+	std::memcpy(buf.data() + off + 9, &rel, sizeof(rel));
+	const uint8_t tail[] = {0x84, 0xC0, 0x5A, 0x59};
+	std::memcpy(buf.data() + off + 13, tail, sizeof(tail));
+}
 
 // Encode an `E8 rel32` at buf[off] whose near-call target is `targetAbs`,
 // given the buffer's runtime base address `base`.  `cleanup` appends the
@@ -189,6 +225,41 @@ int main()
 		auto c = nop; putDepotIndex(c, 0x10, 0x20000, true);
 		CHECK(findCtxDepotVectorOffset(c.data(), c.size()) == -1,
 		      "an out-of-range context offset is rejected");
+	}
+
+	// 14. x86_64: the depot vector decodes only with its matching size load.
+	{
+		auto b = nop; putDepotIndex64(b, 0x218, 0xc0); putDepotSize64(b, 0x198, 0xd0);
+		CHECK(findCtxDepotVectorOffset64(b.data(), b.size()) == 0xc0,
+		      "x86_64: the depot-vector load decodes the context offset");
+		auto c = nop; putDepotIndex64(c, 0x218, 0xc0); putDepotSize64(c, 0x198, 0xd8);
+		CHECK(findCtxDepotVectorOffset64(c.data(), c.size()) == -1,
+		      "x86_64: a base load without its size load is rejected");
+		auto d = nop; putDepotIndex64(d, 0x100, 0xc0); putDepotIndex64(d, 0x218, 0xc0);
+		putDepotSize64(d, 0x198, 0xd0);
+		CHECK(findCtxDepotVectorOffset64(d.data(), d.size()) == -1,
+		      "x86_64: two depot-vector loads are rejected as ambiguous");
+		auto e = nop; putDepotIndex64(e, 0x218, 0xc4); putDepotSize64(e, 0x198, 0xd4);
+		CHECK(findCtxDepotVectorOffset64(e.data(), e.size()) == -1,
+		      "x86_64: a misaligned context offset is rejected");
+	}
+
+	// 15. x86_64: the builder call site is found by shape, validated, unique.
+	{
+		const auto isCode = [](std::uintptr_t t) { return t >= 0x10000 && t < 0x20000; };
+		const std::uintptr_t fnBase = 0x1000;
+		auto b = nop; putBuilderCall64(b, 0x196, fnBase, 0x15000);
+		CHECK(findBuilderCallSite64(b.data(), b.size(), fnBase, isCode) == 0x19e,
+		      "x86_64: the builder call site is located at its E8 byte");
+		auto c = nop; putBuilderCall64(c, 0x196, fnBase, 0x500);
+		CHECK(findBuilderCallSite64(c.data(), c.size(), fnBase, isCode) == -1,
+		      "x86_64: a call whose target is not code is rejected");
+		auto d = nop; putBuilderCall64(d, 0x96, fnBase, 0x15000);
+		putBuilderCall64(d, 0x196, fnBase, 0x16000);
+		CHECK(findBuilderCallSite64(d.data(), d.size(), fnBase, isCode) == -1,
+		      "x86_64: two matching call sites are rejected as ambiguous");
+		CHECK(findBuilderCallSite64(nop.data(), nop.size(), fnBase, isCode) == -1,
+		      "x86_64: no call site leaves the target-local fix disabled");
 	}
 
 	if (g_failures == 0) std::printf("\nall reconcilepin-scan checks passed\n");

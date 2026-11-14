@@ -183,5 +183,78 @@ namespace ReconcilePin
 			}
 			return found;
 		}
+
+		// x86_64 form of the same loop (steamrt64 build 1794536281):
+		//
+		//   mov r11,[rbx+disp32] ; mov r14,r15 ; shl r14,5
+		//   4C 8B 9B d32           4D 89 FE      49 C1 E6 05
+		//
+		// The vector's size sits 0x10 past its base (capacity at +8), so a
+		// `movsxd rdx,[rbx+disp+0x10]` (48 63 93 d32) must also be present
+		// before the decode is trusted.
+		inline long findCtxDepotVectorOffset64(
+			const std::uint8_t* code, std::size_t len)
+		{
+			static constexpr std::uint8_t kLoad[] = {0x4C, 0x8B, 0x9B};
+			static constexpr std::uint8_t kIndex[] = {
+				0x4D, 0x89, 0xFE, 0x49, 0xC1, 0xE6, 0x05};
+			constexpr std::size_t kSpan = sizeof(kLoad) + 4 + sizeof(kIndex);
+			long found = -1;
+			for (std::size_t off = 0; off + kSpan <= len; ++off)
+			{
+				if (std::memcmp(code + off, kLoad, sizeof(kLoad)) != 0 ||
+				    std::memcmp(code + off + sizeof(kLoad) + 4, kIndex,
+				                sizeof(kIndex)) != 0)
+					continue;
+				std::uint32_t disp = 0;
+				std::memcpy(&disp, code + off + sizeof(kLoad), sizeof(disp));
+				if (found != -1) return -1;  // ambiguous
+				if (disp == 0 || disp % 8 != 0 || disp > kMaxCtxDepotVectorOff)
+					return -1;
+				found = static_cast<long>(disp);
+			}
+			if (found < 0) return -1;
+			const std::uint32_t sizeDisp = static_cast<std::uint32_t>(found) + 0x10;
+			for (std::size_t off = 0; off + 7 <= len; ++off)
+			{
+				if (code[off] != 0x48 || code[off + 1] != 0x63 || code[off + 2] != 0x93)
+					continue;
+				std::uint32_t disp = 0;
+				std::memcpy(&disp, code + off + 3, sizeof(disp));
+				if (disp == sizeDisp) return found;
+			}
+			return -1;
+		}
+
+		// x86_64: EvaluateConfigChanges' call to the target-vector builder takes
+		// two stack arguments and tests the bool result:
+		//
+		//   push rax ; mov rdi,[rbp+disp32] ; call rel32 ; test al,al ; pop rdx ; pop rcx
+		//   50         48 8B BD d32           E8 rel32     84 C0        5A        59
+		//
+		// Returns the offset of the E8 byte, or -1 when the shape is absent,
+		// ambiguous, or its target fails isCode.
+		template <typename IsCode>
+		inline long findBuilderCallSite64(const std::uint8_t* fn, std::size_t len,
+		                                  std::uintptr_t fnAddress, IsCode&& isCode)
+		{
+			long site = -1;
+			for (std::size_t off = 0; off + 17 <= len; ++off)
+			{
+				if (fn[off] != 0x50 || fn[off + 1] != 0x48 || fn[off + 2] != 0x8B ||
+				    fn[off + 3] != 0xBD || fn[off + 8] != 0xE8 ||
+				    fn[off + 13] != 0x84 || fn[off + 14] != 0xC0 ||
+				    fn[off + 15] != 0x5A || fn[off + 16] != 0x59)
+					continue;
+				std::int32_t rel = 0;
+				std::memcpy(&rel, fn + off + 9, sizeof(rel));
+				const std::uintptr_t target = fnAddress + off + 13 +
+				    static_cast<std::uintptr_t>(static_cast<std::intptr_t>(rel));
+				if (!isCode(target)) continue;
+				if (site != -1) return -1;  // ambiguous
+				site = static_cast<long>(off + 8);
+			}
+			return site;
+		}
 	}
 }
