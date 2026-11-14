@@ -11,7 +11,7 @@
 #include "../sdk/IClientUtils.hpp"
 
 std::unordered_map<HSteamPipe, AppId_t> FakeAppIds::fakeAppIdMap = std::unordered_map<HSteamPipe, AppId_t>();
-std::unordered_map<uint32_t, AppId_t> FakeAppIds::fakeAppIdMapServer = std::unordered_map<uint32_t, AppId_t>();
+std::unordered_map<void*, AppId_t> FakeAppIds::fakeAppIdMapServer = std::unordered_map<void*, AppId_t>();
 std::unordered_map<uint64_t, AppId_t> FakeAppIds::fakeAppIdMapPings = std::unordered_map<uint64_t, AppId_t>();
 
 AppId_t FakeAppIds::getFakeAppId(const AppId_t appId)
@@ -172,7 +172,7 @@ void FakeAppIds::runIPCFrame(const bool post, const EIPCInterface interface)
 	g_pSteamEngine->setAppIdForCurrentPipe(appId);
 }
 
-void FakeAppIds::getServerDetails(uint32_t handle, gameserverdetails_t& details)
+void FakeAppIds::getServerDetails(void* handle, gameserverdetails_t& details)
 {
 	if (!fakeAppIdMapServer.contains(handle))
 	{

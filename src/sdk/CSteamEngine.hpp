@@ -16,6 +16,15 @@ using CUtlString = char*;
 class __attribute__((packed)) __attribute__((aligned(1))) CServerPipe
 {
 public:
+#if defined(__x86_64__)
+	IProcessPipe* internalPipe;			//0x0
+	IProcessPipe* singleProcessPipe;	//0x8
+	HSteamPipe pipeHandle;				//0x10
+	uint8_t __pad0x14[0xC];				//0x14
+	int32_t pid;						//0x20
+	int32_t threadId;					//0x24
+	CUtlString processName;				//0x28
+#else
 	IProcessPipe* internalPipe;		//0x0
 	IProcessPipe* singleProcessPipe;	//0x4
 	HSteamPipe pipeHandle;				//0x8
@@ -31,13 +40,16 @@ public:
 	uint32_t numQueuedCallbacks;		//0x38
 	uint8_t __pad0x3C[0x14];			//0x3C
 	CUtlVector<void> debugText;			//0x50
-}; //0x60
+#endif
+};
 
-#if defined(__i386__)
+#if defined(__x86_64__)
+static_assert(offsetof(CServerPipe, pipeHandle) == 0x10);
+static_assert(offsetof(CServerPipe, pid) == 0x20);
+#elif defined(__i386__)
 static_assert(offsetof(CServerPipe, pipeHandle) == 0x8);
 static_assert(offsetof(CServerPipe, pid) == 0x14);
 #endif
-// TODO(steamrt64): Re-verify CServerPipe 64-bit offsets against steamrt64/steamclient.so.
 
 class CSteamEngine
 {

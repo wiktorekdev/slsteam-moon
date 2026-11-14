@@ -46,15 +46,32 @@ enum EGameFlags
 class CProtoBufMsgBase
 {
 public:
+#if defined(__x86_64__)
+	uint8_t __pad_0x0[0x28];	//0x0
+	uint16_t type;				//0x28 (low 16 bits of EMsg; high bit is PROTOBUF_TYPE_MASK)
+	uint16_t __pad_0x2A;		//0x2A
+	uint8_t __pad_0x2C[0x4];	//0x2C
+	CMsgProtoBufHeader* header;	//0x30
+	void* __pBody;				//0x38
+	uint8_t __pad_0x40[0x10];	//0x40
+#else
 	char __pad_0x0[0x14];		//0x0
 	uint16_t type;				//0x14
 	char __pad_0x16[0x6];		//0x16
 	CMsgProtoBufHeader* header; //0x1C
 	void* __pBody;				//0x20
 	char __pad_0x24[0x8];		//0x24
+#endif
 	
 	template<typename T> constexpr T* getBody() const
 	{
 		return reinterpret_cast<T*>(__pBody);
 	}
-}; //0x2C
+}; //0x50 on x86_64, 0x2C on x86
+
+#if defined(__x86_64__)
+static_assert(offsetof(CProtoBufMsgBase, type) == 0x28);
+static_assert(offsetof(CProtoBufMsgBase, header) == 0x30);
+static_assert(offsetof(CProtoBufMsgBase, __pBody) == 0x38);
+static_assert(sizeof(CProtoBufMsgBase) == 0x50);
+#endif

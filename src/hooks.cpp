@@ -520,7 +520,7 @@ static uint32_t hkSteamEngine_SetAppIdForCurrentPipe(void* pSteamEngine, uint32_
 	return ret;
 }
 
-static gameserverdetails_t* hkSteamMatchmakingServers_GetServerDetails(void* pSteamMatchmakingServers, uint32_t handle, uint32_t serverIdx)
+static gameserverdetails_t* hkSteamMatchmakingServers_GetServerDetails(void* pSteamMatchmakingServers, void* handle, uint32_t serverIdx)
 {
 	gameserverdetails_t* ret = Hooks::CSteamMatchmakingServers_GetServerDetails.tramp.fn(pSteamMatchmakingServers, handle, serverIdx);
 
@@ -543,15 +543,15 @@ static gameserverdetails_t* hkSteamMatchmakingServers_GetServerDetails(void* pSt
 	return ret;
 }
 
-static uint32_t hkSteamMatchmakingServers_RequestInternetServerList(void* pSteamMatchmakingServers, uint32_t appId, uint32_t a2, uint32_t a3, uint32_t a4)
+static void* hkSteamMatchmakingServers_RequestInternetServerList(void* pSteamMatchmakingServers, uint32_t appId, void* a2, uint32_t a3, void* a4)
 {
 	const uint32_t fake = FakeAppIds::requestInternetServerList(appId);
 
-	uint32_t handle = Hooks::CSteamMatchmakingServers_RequestInternetServerList.tramp.fn(pSteamMatchmakingServers, fake ? fake : appId, a2, a3, a4);
+	void* handle = Hooks::CSteamMatchmakingServers_RequestInternetServerList.tramp.fn(pSteamMatchmakingServers, fake ? fake : appId, a2, a3, a4);
 
 	g_pLog->debug
 	(
-		"%s(%p, %u, %p, %p, %p)->%p\n",
+		"%s(%p, %u, %p, 0x%x, %p)->%p\n",
 
 		Hooks::CSteamMatchmakingServers_RequestInternetServerList.name.c_str(),
 		pSteamMatchmakingServers,
